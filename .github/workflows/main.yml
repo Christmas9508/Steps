@@ -144,6 +144,152 @@ jobs:
           print('Iconite generate OK')
           PYEOF
 
+      - name: Corecteaza cod pentru alpha11
+        run: |
+          cat > app/src/main/java/com/example/stepbooster/HealthConnectManager.kt << 'EOF'
+          package com.example.stepbooster
+
+          import android.content.Context
+          import androidx.health.connect.client.HealthConnectClient
+          import androidx.health.connect.client.permission.HealthPermission
+          import androidx.health.connect.client.records.StepsRecord
+          import androidx.health.connect.client.request.ReadRecordsRequest
+          import androidx.health.connect.client.time.TimeRangeFilter
+          import java.time.Instant
+          import java.time.LocalDate
+          import java.time.ZoneId
+
+          class HealthConnectManager(private val context: Context) {
+
+              private val client by lazy { HealthConnectClient.getOrCreate(context) }
+
+              val permissions = setOf(
+                  HealthPermission.getReadPermission(StepsRecord::class),
+                  HealthPermission.getWritePermission(StepsRecord::class)
+              )
+
+              fun isAvailable(): Boolean {
+                  return try {
+                      HealthConnectClient.getOrCreate(context)
+                      true
+                  } catch (e: Exception) {
+                      false
+                  }
+              }
+
+              suspend fun hasPermissions(): Boolean {
+                  return try {
+                      val granted = client.permissionController.getGrantedPermissions()
+                      granted.containsAll(permissions)
+                  } catch (e: Exception) { false }
+              }
+
+              suspend fun writeSteps(steps: Long, startTime: Instant, endTime: Instant) {
+                  if (steps <= 0) return
+                  try {
+                      val record = StepsRecord(
+                          count = steps,
+                          startTime = startTime,
+                          endTime = endTime,
+                          startZoneOffset = ZoneId.systemDefault().rules.getOffset(startTime),
+                          endZoneOffset = ZoneId.systemDefault().rules.getOffset(endTime)
+                      )
+                      client.insertRecords(listOf(record))
+                  } catch (e: Exception) { e.printStackTrace() }
+              }
+
+              suspend fun readTodaySteps(): Long {
+                  return try {
+                      val today = LocalDate.now()
+                      val startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toInstant()
+                      val request = ReadRecordsRequest(
+                          recordType = StepsRecord::class,
+                          timeRangeFilter = TimeRangeFilter.between(startOfDay, Instant.now())
+                      )
+                      client.readRecords(request).records.sumOf { it.count }
+                  } catch (e: Exception) { 0L }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/stepbooster/MainActivity.kt << 'EOF'
+          package com.example.stepbooster
+
+          import android.Manifest
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.activity.viewModels
+          import androidx.compose.runtime.collectAsState
+          import androidx.compose.runtime.getValue
+          import com.example.stepbooster.ui.MainScreen
+          import com.example.stepbooster.ui.theme.StepBoosterTheme
+
+          class MainActivity : ComponentActivity() {
+              private val viewModel: MainViewModel by viewModels()
+
+              private val activityRecognitionLauncher = registerForActivityResult(
+                  ActivityResultContracts.RequestPermission()
+              ) { _ -> viewModel.onPermissionsGranted() }
+
+              private val healthPermissionsLauncher = registerForActivityResult(
+                  ActivityResultContracts.RequestMultiplePermissions()
+              ) { _ -> viewModel.onPermissionsGranted() }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      StepBoosterTheme {
+                          val state by viewModel.state.collectAsState()
+                          MainScreen(
+                              state = state,
+                              onToggleService = { viewModel.toggleService() },
+                              onMultiplierChange = { viewModel.setMultiplier(it) },
+                              onRequestPermissions = { requestAllPermissions() },
+                              onBatteryOptimization = { openBatterySettings() },
+                              onOpenHealthConnectStore = { openPlayStore("com.google.android.apps.healthdata") }
+                          )
+                      }
+                  }
+              }
+
+              private fun requestAllPermissions() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+                  } else {
+                      viewModel.onPermissionsGranted()
+                  }
+              }
+
+              private fun openBatterySettings() {
+                  try {
+                      startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                          data = Uri.parse("package:$packageName")
+                      })
+                  } catch (e: Exception) {
+                      startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                  }
+              }
+
+              private fun openPlayStore(pkg: String) {
+                  try {
+                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg")))
+                  } catch (e: Exception) {
+                      startActivity(Intent(Intent.ACTION_VIEW,
+                          Uri.parse("https://play.google.com/store/apps/details?id=$pkg")))
+                  }
+              }
+          }
+          EOF
+
+          # Fix tip Long in StepBoosterService
+          sed -i 's/val boosted = Math.round(steps \* currentMultiplier)/val boosted = Math.round(steps.toDouble() * currentMultiplier.toDouble())/' \
+            app/src/main/java/com/example/stepbooster
       - name: Descarca Gradle Wrapper JAR
         run: |
           curl -L --retry 3 \

@@ -10,33 +10,100 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Creaza structura proiect
+      - name: Creaza structura si fisiere lipsa
         run: |
           mkdir -p app/src/main/java/com/example/stepbooster/ui/theme
           mkdir -p app/src/main/res/values
           mkdir -p gradle/wrapper
 
-          mv AndroidManifest.xml app/src/main/AndroidManifest.xml 2>/dev/null || true
-          mv strings.xml app/src/main/res/values/ 2>/dev/null || true
-          mv themes.xml app/src/main/res/values/ 2>/dev/null || true
-          mv MainActivity.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
-          mv MainViewModel.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
-          mv StepBoosterService.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
-          mv HealthConnectManager.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
-          mv MultiplierDataStore.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
-          mv BootReceiver.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
-          mv WatchdogAlarmReceiver.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
-          mv MainScreen.kt app/src/main/java/com/example/stepbooster/ui/ 2>/dev/null || true
-          mv Theme.kt app/src/main/java/com/example/stepbooster/ui/theme/ 2>/dev/null || true
-          mv gradle-wrapper.properties gradle/wrapper/ 2>/dev/null || true
-          mv libs.versions.toml gradle/ 2>/dev/null || true
-          mv proguard-rules.pro app/ 2>/dev/null || true
+          # Muta fisierele Kotlin
+          for f in MainActivity.kt MainViewModel.kt StepBoosterService.kt HealthConnectManager.kt MultiplierDataStore.kt BootReceiver.kt WatchdogAlarmReceiver.kt; do
+            [ -f "$f" ] && mv "$f" app/src/main/java/com/example/stepbooster/
+          done
+          [ -f "MainScreen.kt" ] && mv MainScreen.kt app/src/main/java/com/example/stepbooster/ui/
+          [ -f "Theme.kt" ] && mv Theme.kt app/src/main/java/com/example/stepbooster/ui/theme/
+          [ -f "AndroidManifest.xml" ] && mv AndroidManifest.xml app/src/main/
+          [ -f "strings.xml" ] && mv strings.xml app/src/main/res/values/
+          [ -f "themes.xml" ] && mv themes.xml app/src/main/res/values/
+          [ -f "gradle-wrapper.properties" ] && mv gradle-wrapper.properties gradle/wrapper/
+          [ -f "libs.versions.toml" ] && mv libs.versions.toml gradle/
+          [ -f "proguard-rules.pro" ] && mv proguard-rules.pro app/
+
+          # Rescrie settings.gradle.kts corect
+          cat > settings.gradle.kts << 'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "StepBooster"
+          include(":app")
+          EOF
+
+          # Rescrie root build.gradle.kts
+          cat > build.gradle.kts << 'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
+          }
+          EOF
+
+          # Rescrie app/build.gradle.kts
+          cat > app/build.gradle.kts << 'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+          android {
+              namespace = "com.example.stepbooster"
+              compileSdk = 35
+              defaultConfig {
+                  applicationId = "com.example.stepbooster"
+                  minSdk = 26
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_11
+                  targetCompatibility = JavaVersion.VERSION_11
+              }
+              kotlinOptions { jvmTarget = "11" }
+              buildFeatures { compose = true }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+              implementation("androidx.activity:activity-compose:1.9.3")
+              implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.ui:ui-tooling-preview")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
+              implementation("androidx.health.connect:connect-client:1.1.0-rc01")
+              implementation("androidx.datastore:datastore-preferences:1.1.1")
+              implementation("androidx.work:work-runtime-ktx:2.9.1")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+              debugImplementation("androidx.compose.ui:ui-tooling")
+          }
+          EOF
 
       - name: Descarca Gradle Wrapper JAR
         run: |
-          curl -L --retry 3 \
-            "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar" \
-            -o gradle/wrapper/gradle-wrapper.jar
+          curl -L --retry 3 "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
 
       - uses: actions/setup-java@v4
@@ -55,3 +122,4 @@ jobs:
           name: StepBooster-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+          

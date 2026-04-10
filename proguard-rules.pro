@@ -1,0 +1,5 @@
+-keep class com.example.stepbooster.StepBoosterService { *; }
+-keep class com.example.stepbooster.BootReceiver { *; }
+-keep class com.example.stepbooster.WatchdogAlarmReceiver { *; }
+-keep class androidx.health.connect.** { *; }
+-dontwarn androidx.health.connect.**

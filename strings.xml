@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">StepBooster</string>
+    <string name="notification_channel_name">StepBooster Service</string>
+    <string name="notification_title">StepBooster Activ</string>
+</resources>

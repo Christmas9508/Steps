@@ -89,7 +89,7 @@ jobs:
               implementation("androidx.compose.ui:ui-tooling-preview")
               implementation("androidx.compose.material3:material3")
               implementation("androidx.compose.material:material-icons-extended")
-              implementation("androidx.health.connect:connect-client:1.0.0-beta02")
+              implementation("androidx.health.connect:connect-client:1.0.0-alpha11")
               implementation("androidx.datastore:datastore-preferences:1.1.1")
               implementation("androidx.work:work-runtime-ktx:2.9.1")
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

@@ -1,88 +1,57 @@
 package com.example.stepbooster
 
-import android.Manifest
+import android.app.Activity
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
+import android.util.Log
+import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.health.connect.client.HealthConnectClient
-import com.example.stepbooster.ui.MainScreen
-import com.example.stepbooster.ui.theme.StepBoosterTheme
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import com.google.android.gms.location.ActivityRecognitionClient
+import com.google.android.gms.location.DetectedActivity
+import com.google.android.gms.tasks.OnSuccessListener
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
+    private lateinit var activityRecognitionClient: ActivityRecognitionClient
 
-    private val viewModel: MainViewModel by viewModels()
-
-    // Permisiune ACTIVITY_RECOGNITION (Android 10+)
-    private val activityRecognitionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) requestHealthConnectPermissions()
-    }
-
-    // Permisiuni Health Connect
-    private val healthPermissionsLauncher = registerForActivityResult(
-        HealthConnectClient.requestPermissionsActivityContract()
-    ) { _ ->
-        viewModel.onPermissionsGranted()
+    private val activityRecognitionLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            // Handle the result of the activity recognition setup
+            Toast.makeText(this, "Activity recognition enabled", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            StepBoosterTheme {
-                val state by viewModel.state.collectAsState()
-                MainScreen(
-                    state = state,
-                    onToggleService = { viewModel.toggleService() },
-                    onMultiplierChange = { viewModel.setMultiplier(it) },
-                    onRequestPermissions = { requestAllPermissions() },
-                    onBatteryOptimization = { openBatterySettings() },
-                    onOpenHealthConnectStore = { openPlayStore("com.google.android.apps.healthdata") }
-                )
-            }
-        }
+        setContentView(R.layout.activity_main)
+
+        // Request permissions and activity recognition settings
+        requestActivityRecognition()
+
+        // Add battery optimization settings
+        val intent = Intent()
+        intent.action = Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+        startActivity(intent)
+
+        // Add functionality to open Google Play Store
+        openPlayStore()
     }
 
-    private fun requestAllPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
-        } else {
-            requestHealthConnectPermissions()
-        }
+    private fun requestActivityRecognition() {
+        // Code to request activity recognition permission
+        activityRecognitionLauncher.launch(Intent(this, YourActivity::class.java))
     }
 
-    private fun requestHealthConnectPermissions() {
-        val hcManager = HealthConnectManager(this)
-        if (hcManager.isAvailable()) {
-            healthPermissionsLauncher.launch(hcManager.permissions)
-        }
-    }
-
-    private fun openBatterySettings() {
+    private fun openPlayStore() {
         try {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:$packageName")
-            }
-            startActivity(intent)
-        } catch (e: Exception) {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
-    }
-
-    private fun openPlayStore(packageName: String) {
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")))
-        } catch (e: Exception) {
-            startActivity(Intent(Intent.ACTION_VIEW,
-                Uri.parse("https://play.google.com/store/apps/details?id=$packageName")))
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.example.stepbooster")))
+        } catch (e: ActivityNotFoundException) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.example.stepbooster")))
         }
     }
 }

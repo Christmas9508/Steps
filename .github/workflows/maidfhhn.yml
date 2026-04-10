@@ -1,0 +1,1226 @@
+name: Build StepBooster APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scrie codul sursă
+        shell: bash
+        run: |
+          python3 << 'PYEOF'
+          import os
+          import struct
+          import zlib
+
+          def w(path, content):
+              directory = os.path.dirname(path)
+              if directory:
+                  os.makedirs(directory, exist_ok=True)
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(content.strip() + "\n")
+
+          w("settings.gradle.kts", """
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "StepBooster"
+          include(":app")
+          """)
+
+          w("build.gradle.kts", """
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
+          }
+          """)
+
+          w("gradle.properties", """
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          """)
+
+          w("gradle/wrapper/gradle-wrapper.properties", """
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip
+          networkTimeout=10000
+          validateDistributionUrl=true
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          """)
+
+          w("gradlew", """
+          #!/bin/sh
+          APP_HOME=$(cd "${APP_HOME:-./}" && pwd -P) || exit 1
+          JAVACMD=${JAVA_HOME:+$JAVA_HOME/bin/}java
+          exec "$JAVACMD" -classpath "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"
+          """)
+
+          w("app/build.gradle.kts", """
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+
+          android {
+              namespace = "com.example.stepbooster"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.example.stepbooster"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_11
+                  targetCompatibility = JavaVersion.VERSION_11
+              }
+
+              kotlinOptions {
+                  jvmTarget = "11"
+              }
+
+              buildFeatures {
+                  compose = true
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+              implementation("androidx.activity:activity-compose:1.9.3")
+
+              implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.ui:ui-tooling-preview")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
+
+              implementation("androidx.health.connect:connect-client:1.0.0-alpha11")
+              implementation("androidx.datastore:datastore-preferences:1.1.1")
+              implementation("androidx.work:work-runtime-ktx:2.9.1")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+              debugImplementation("androidx.compose.ui:ui-tooling")
+          }
+          """)
+
+          w("app/proguard-rules.pro", """
+          -keep class com.example.stepbooster.** { *; }
+          -keep class androidx.health.connect.** { *; }
+          -dontwarn androidx.health.connect.**
+          """)
+
+          w("app/src/main/AndroidManifest.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+              <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+              <uses-permission android:name="android.permission.health.READ_STEPS" />
+              <uses-permission android:name="android.permission.health.WRITE_STEPS" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.StepBooster">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".StepBoosterService"
+                      android:enabled="true"
+                      android:exported="false"
+                      android:foregroundServiceType="health" />
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:enabled="true"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                      </intent-filter>
+                  </receiver>
+
+                  <receiver
+                      android:name=".WatchdogAlarmReceiver"
+                      android:enabled="true"
+                      android:exported="false" />
+              </application>
+
+              <queries>
+                  <package android:name="com.google.android.apps.healthdata" />
+              </queries>
+          </manifest>
+          """)
+
+          w("app/src/main/res/values/strings.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">StepBooster</string>
+              <string name="notification_channel_name">StepBooster Service</string>
+          </resources>
+          """)
+
+          w("app/src/main/res/values/themes.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.StepBooster" parent="android:Theme.Material.Light.NoActionBar" />
+          </resources>
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/MultiplierDataStore.kt", """
+          package com.example.stepbooster
+
+          import android.content.Context
+          import androidx.datastore.core.DataStore
+          import androidx.datastore.preferences.core.Preferences
+          import androidx.datastore.preferences.core.booleanPreferencesKey
+          import androidx.datastore.preferences.core.edit
+          import androidx.datastore.preferences.core.floatPreferencesKey
+          import androidx.datastore.preferences.preferencesDataStore
+          import kotlinx.coroutines.flow.Flow
+          import kotlinx.coroutines.flow.map
+
+          val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "stepbooster_prefs")
+
+          object MultiplierDataStore {
+              private val MULTIPLIER_KEY = floatPreferencesKey("multiplier")
+              private val SERVICE_ENABLED_KEY = booleanPreferencesKey("service_enabled")
+
+              fun getMultiplier(context: Context): Flow<Float> =
+                  context.dataStore.data.map { prefs -> prefs[MULTIPLIER_KEY] ?: 2.0f }
+
+              fun getServiceEnabled(context: Context): Flow<Boolean> =
+                  context.dataStore.data.map { prefs -> prefs[SERVICE_ENABLED_KEY] ?: false }
+
+              suspend fun setMultiplier(context: Context, value: Float) {
+                  context.dataStore.edit { prefs -> prefs[MULTIPLIER_KEY] = value }
+              }
+
+              suspend fun setServiceEnabled(context: Context, enabled: Boolean) {
+                  context.dataStore.edit { prefs -> prefs[SERVICE_ENABLED_KEY] = enabled }
+              }
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/HealthConnectManager.kt", """
+          package com.example.stepbooster
+
+          import android.content.Context
+          import androidx.health.connect.client.HealthConnectClient
+          import androidx.health.connect.client.permission.HealthPermission
+          import androidx.health.connect.client.records.StepsRecord
+          import androidx.health.connect.client.request.ReadRecordsRequest
+          import androidx.health.connect.client.time.TimeRangeFilter
+          import java.time.Instant
+          import java.time.LocalDate
+          import java.time.ZoneId
+
+          class HealthConnectManager(private val context: Context) {
+              private val client by lazy { HealthConnectClient.getOrCreate(context) }
+
+              val permissions = setOf(
+                  HealthPermission.getReadPermission(StepsRecord::class),
+                  HealthPermission.getWritePermission(StepsRecord::class)
+              )
+
+              fun isAvailable(): Boolean {
+                  return try {
+                      HealthConnectClient.getOrCreate(context)
+                      true
+                  } catch (e: Exception) {
+                      false
+                  }
+              }
+
+              suspend fun hasPermissions(): Boolean {
+                  return try {
+                      val granted = client.permissionController.getGrantedPermissions()
+                      granted.containsAll(permissions)
+                  } catch (e: Exception) {
+                      false
+                  }
+              }
+
+              suspend fun writeSteps(steps: Long, startTime: Instant, endTime: Instant) {
+                  if (steps <= 0) return
+
+                  try {
+                      client.insertRecords(
+                          listOf(
+                              StepsRecord(
+                                  count = steps,
+                                  startTime = startTime,
+                                  endTime = endTime,
+                                  startZoneOffset = ZoneId.systemDefault().rules.getOffset(startTime),
+                                  endZoneOffset = ZoneId.systemDefault().rules.getOffset(endTime)
+                              )
+                          )
+                      )
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+
+              suspend fun readTodaySteps(): Long {
+                  return try {
+                      val startOfDay = LocalDate.now()
+                          .atStartOfDay(ZoneId.systemDefault())
+                          .toInstant()
+
+                      client.readRecords(
+                          ReadRecordsRequest(
+                              recordType = StepsRecord::class,
+                              timeRangeFilter = TimeRangeFilter.between(startOfDay, Instant.now())
+                          )
+                      ).records.sumOf { it.count }
+                  } catch (e: Exception) {
+                      0L
+                  }
+              }
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/StepBoosterService.kt", """
+          package com.example.stepbooster
+
+          import android.app.AlarmManager
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.hardware.Sensor
+          import android.hardware.SensorEvent
+          import android.hardware.SensorEventListener
+          import android.hardware.SensorManager
+          import android.os.IBinder
+          import android.os.PowerManager
+          import android.os.SystemClock
+          import androidx.core.app.NotificationCompat
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.Job
+          import kotlinx.coroutines.SupervisorJob
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.delay
+          import kotlinx.coroutines.flow.first
+          import kotlinx.coroutines.launch
+          import java.time.Instant
+
+          class StepBoosterService : Service(), SensorEventListener {
+
+              companion object {
+                  const val CHANNEL_ID = "stepbooster_channel"
+                  const val NOTIFICATION_ID = 1001
+                  const val ACTION_UPDATE_MULTIPLIER = "ACTION_UPDATE_MULTIPLIER"
+                  const val EXTRA_MULTIPLIER = "EXTRA_MULTIPLIER"
+                  const val WATCHDOG_INTERVAL_MS = 5 * 60 * 1000L
+
+                  var realStepsToday = 0L
+                  var boostedStepsToday = 0L
+                  var currentMultiplier = 2.0f
+                  var isRunning = false
+
+                  fun start(context: Context) {
+                      context.startForegroundService(Intent(context, StepBoosterService::class.java))
+                  }
+
+                  fun stop(context: Context) {
+                      context.stopService(Intent(context, StepBoosterService::class.java))
+                  }
+              }
+
+              private lateinit var sensorManager: SensorManager
+              private lateinit var wakeLock: PowerManager.WakeLock
+              private lateinit var hcManager: HealthConnectManager
+              private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+              private var batchSteps = 0L
+              private var batchStart: Instant? = null
+              private var batchEnd: Instant? = null
+              private var batchJob: Job? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+
+                  isRunning = true
+                  hcManager = HealthConnectManager(this)
+                  sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+
+                  val pm = getSystemService(POWER_SERVICE) as PowerManager
+                  wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "StepBooster::WakeLock")
+                  wakeLock.acquire(10 * 60 * 1000L)
+
+                  scope.launch {
+                      currentMultiplier = MultiplierDataStore.getMultiplier(applicationContext).first()
+                  }
+
+                  createNotificationChannel()
+                  startForeground(NOTIFICATION_ID, buildNotification())
+
+                  sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let {
+                      sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+                  }
+
+                  scheduleWatchdog()
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (intent?.action == ACTION_UPDATE_MULTIPLIER) {
+                      currentMultiplier = intent.getFloatExtra(EXTRA_MULTIPLIER, 2.0f)
+                      updateNotification()
+                  }
+                  return START_STICKY
+              }
+
+              override fun onTaskRemoved(rootIntent: Intent?) {
+                  super.onTaskRemoved(rootIntent)
+
+                  val pi = PendingIntent.getService(
+                      this,
+                      1,
+                      Intent(applicationContext, StepBoosterService::class.java),
+                      PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                  )
+
+                  (getSystemService(ALARM_SERVICE) as AlarmManager).set(
+                      AlarmManager.ELAPSED_REALTIME,
+                      SystemClock.elapsedRealtime() + 2000,
+                      pi
+                  )
+              }
+
+              override fun onDestroy() {
+                  super.onDestroy()
+                  isRunning = false
+                  sensorManager.unregisterListener(this)
+                  scope.cancel()
+                  if (wakeLock.isHeld) wakeLock.release()
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onSensorChanged(event: SensorEvent) {
+                  if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
+                      val now = Instant.now()
+
+                      synchronized(this) {
+                          batchSteps++
+                          realStepsToday++
+                          if (batchStart == null) batchStart = now
+                          batchEnd = now
+                      }
+
+                      if (batchJob?.isActive != true) {
+                          batchJob = scope.launch {
+                              delay(15_000L)
+                              flush()
+                          }
+                      }
+
+                      updateNotification()
+                  }
+              }
+
+              override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+              private suspend fun flush() {
+                  val steps: Long
+                  val s: Instant
+                  val e: Instant
+
+                  synchronized(this) {
+                      if (batchSteps == 0L) return
+                      steps = batchSteps
+                      s = batchStart ?: Instant.now()
+                      e = batchEnd ?: Instant.now()
+                      batchSteps = 0L
+                      batchStart = null
+                      batchEnd = null
+                  }
+
+                  val boosted = Math.round(steps.toDouble() * currentMultiplier.toDouble())
+                  boostedStepsToday += boosted
+                  hcManager.writeSteps(boosted, s, e)
+                  updateNotification()
+              }
+
+              private fun createNotificationChannel() {
+                  val channel = NotificationChannel(
+                      CHANNEL_ID,
+                      getString(R.string.notification_channel_name),
+                      NotificationManager.IMPORTANCE_LOW
+                  )
+                  channel.setShowBadge(false)
+
+                  (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                      .createNotificationChannel(channel)
+              }
+
+              private fun buildNotification(): Notification {
+                  val pi = PendingIntent.getActivity(
+                      this,
+                      0,
+                      Intent(this, MainActivity::class.java),
+                      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                  )
+
+                  return NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setContentTitle("StepBooster ${currentMultiplier}x Activ")
+                      .setContentText("Reali: $realStepsToday | HC: $boostedStepsToday")
+                      .setSmallIcon(android.R.drawable.ic_media_play)
+                      .setContentIntent(pi)
+                      .setOngoing(true)
+                      .setSilent(true)
+                      .build()
+              }
+
+              private fun updateNotification() {
+                  (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                      .notify(NOTIFICATION_ID, buildNotification())
+              }
+
+              private fun scheduleWatchdog() {
+                  val pi = PendingIntent.getBroadcast(
+                      this,
+                      0,
+                      Intent(this, WatchdogAlarmReceiver::class.java),
+                      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                  )
+
+                  (getSystemService(ALARM_SERVICE) as AlarmManager).setExactAndAllowWhileIdle(
+                      AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                      SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS,
+                      pi
+                  )
+              }
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/BootReceiver.kt", """
+          package com.example.stepbooster
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.flow.first
+          import kotlinx.coroutines.launch
+
+          class BootReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent) {
+                  if (intent.action == Intent.ACTION_BOOT_COMPLETED ||
+                      intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+                      CoroutineScope(Dispatchers.IO).launch {
+                          if (MultiplierDataStore.getServiceEnabled(context).first()) {
+                              StepBoosterService.start(context)
+                          }
+                      }
+                  }
+              }
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/WatchdogAlarmReceiver.kt", """
+          package com.example.stepbooster
+
+          import android.app.AlarmManager
+          import android.app.PendingIntent
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import android.os.SystemClock
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.flow.first
+          import kotlinx.coroutines.launch
+
+          class WatchdogAlarmReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent) {
+                  CoroutineScope(Dispatchers.IO).launch {
+                      val enabled = MultiplierDataStore.getServiceEnabled(context).first()
+
+                      if (enabled && !StepBoosterService.isRunning) {
+                          StepBoosterService.start(context)
+                      }
+
+                      if (enabled) {
+                          val pi = PendingIntent.getBroadcast(
+                              context,
+                              0,
+                              Intent(context, WatchdogAlarmReceiver::class.java),
+                              PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                          )
+
+                          (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager)
+                              .setExactAndAllowWhileIdle(
+                                  AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                                  SystemClock.elapsedRealtime() + 5 * 60 * 1000L,
+                                  pi
+                              )
+                      }
+                  }
+              }
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/MainViewModel.kt", """
+          package com.example.stepbooster
+
+          import android.app.Application
+          import android.content.Intent
+          import androidx.lifecycle.AndroidViewModel
+          import androidx.lifecycle.viewModelScope
+          import kotlinx.coroutines.delay
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.StateFlow
+          import kotlinx.coroutines.flow.asStateFlow
+          import kotlinx.coroutines.flow.collect
+          import kotlinx.coroutines.launch
+
+          data class AppState(
+              val isServiceRunning: Boolean = false,
+              val multiplier: Float = 2.0f,
+              val realStepsToday: Long = 0L,
+              val boostedStepsToday: Long = 0L,
+              val healthConnectAvailable: Boolean = false,
+              val hasPermissions: Boolean = false
+          )
+
+          class MainViewModel(application: Application) : AndroidViewModel(application) {
+              private val context = application.applicationContext
+              private val hcManager = HealthConnectManager(context)
+
+              private val _state = MutableStateFlow(AppState())
+              val state: StateFlow<AppState> = _state.asStateFlow()
+
+              init {
+                  viewModelScope.launch {
+                      MultiplierDataStore.getMultiplier(context).collect { mult ->
+                          _state.value = _state.value.copy(multiplier = mult)
+                      }
+                  }
+
+                  viewModelScope.launch {
+                      while (true) {
+                          delay(1000)
+                          val avail = hcManager.isAvailable()
+                          _state.value = _state.value.copy(
+                              isServiceRunning = StepBoosterService.isRunning,
+                              realStepsToday = StepBoosterService.realStepsToday,
+                              boostedStepsToday = StepBoosterService.boostedStepsToday,
+                              healthConnectAvailable = avail,
+                              hasPermissions = if (avail) hcManager.hasPermissions() else false
+                          )
+                      }
+                  }
+              }
+
+              fun toggleService() {
+                  viewModelScope.launch {
+                      if (StepBoosterService.isRunning) {
+                          StepBoosterService.stop(context)
+                          MultiplierDataStore.setServiceEnabled(context, false)
+                      } else {
+                          StepBoosterService.start(context)
+                          MultiplierDataStore.setServiceEnabled(context, true)
+                      }
+                  }
+              }
+
+              fun setMultiplier(value: Float) {
+                  val rounded = Math.round(value * 2) / 2.0f
+
+                  viewModelScope.launch {
+                      MultiplierDataStore.setMultiplier(context, rounded)
+                      StepBoosterService.currentMultiplier = rounded
+
+                      if (StepBoosterService.isRunning) {
+                          context.startService(
+                              Intent(context, StepBoosterService::class.java).apply {
+                                  action = StepBoosterService.ACTION_UPDATE_MULTIPLIER
+                                  putExtra(StepBoosterService.EXTRA_MULTIPLIER, rounded)
+                              }
+                          )
+                      }
+                  }
+
+                  _state.value = _state.value.copy(multiplier = rounded)
+              }
+
+              fun onPermissionsGranted() {
+                  viewModelScope.launch {
+                      _state.value = _state.value.copy(hasPermissions = hcManager.hasPermissions())
+                  }
+              }
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/MainActivity.kt", """
+          package com.example.stepbooster
+
+          import android.Manifest
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.activity.viewModels
+          import androidx.compose.runtime.collectAsState
+          import androidx.compose.runtime.getValue
+          import com.example.stepbooster.ui.MainScreen
+          import com.example.stepbooster.ui.theme.StepBoosterTheme
+
+          class MainActivity : ComponentActivity() {
+
+              private val viewModel: MainViewModel by viewModels()
+
+              private val activityRecognitionLauncher =
+                  registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+                      openHealthConnectSettings()
+                  }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  setContent {
+                      StepBoosterTheme {
+                          val state by viewModel.state.collectAsState()
+
+                          MainScreen(
+                              state = state,
+                              onToggleService = { viewModel.toggleService() },
+                              onMultiplierChange = { viewModel.setMultiplier(it) },
+                              onRequestPermissions = { requestAllPermissions() },
+                              onBatteryOptimization = { openBatterySettings() },
+                              onOpenHealthConnectStore = { openPlayStore("com.google.android.apps.healthdata") }
+                          )
+                      }
+                  }
+
+                  viewModel.onPermissionsGranted()
+              }
+
+              private fun requestAllPermissions() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      activityRecognitionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+                  } else {
+                      openHealthConnectSettings()
+                  }
+              }
+
+              private fun openHealthConnectSettings() {
+                  try {
+                      startActivity(Intent("androidx.health.ACTION_HEALTH_CONNECT_SETTINGS"))
+                  } catch (e: Exception) {
+                      openPlayStore("com.google.android.apps.healthdata")
+                  }
+              }
+
+              private fun openBatterySettings() {
+                  try {
+                      startActivity(
+                          Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                              data = Uri.parse("package:$packageName")
+                          }
+                      )
+                  } catch (e: Exception) {
+                      startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                  }
+              }
+
+              private fun openPlayStore(pkg: String) {
+                  try {
+                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg")))
+                  } catch (e: Exception) {
+                      startActivity(
+                          Intent(
+                              Intent.ACTION_VIEW,
+                              Uri.parse("https://play.google.com/store/apps/details?id=$pkg")
+                          )
+                      )
+                  }
+              }
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/ui/theme/Theme.kt", """
+          package com.example.stepbooster.ui.theme
+
+          import android.os.Build
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.dynamicLightColorScheme
+          import androidx.compose.material3.lightColorScheme
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.LocalContext
+
+          private val LightColors = lightColorScheme(
+              primary = Color(0xFF2E7D32),
+              onPrimary = Color.White,
+              primaryContainer = Color(0xFFA5D6A7),
+              secondary = Color(0xFF388E3C),
+              background = Color(0xFFF1F8E9),
+              surface = Color.White
+          )
+
+          @Composable
+          fun StepBoosterTheme(content: @Composable () -> Unit) {
+              val colorScheme =
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                      dynamicLightColorScheme(LocalContext.current)
+                  } else {
+                      LightColors
+                  }
+
+              MaterialTheme(
+                  colorScheme = colorScheme,
+                  content = content
+              )
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/ui/MainScreen.kt", """
+          package com.example.stepbooster.ui
+
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.Spacer
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.size
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.shape.CircleShape
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.BatteryFull
+          import androidx.compose.material.icons.filled.CheckCircle
+          import androidx.compose.material.icons.filled.DirectionsWalk
+          import androidx.compose.material.icons.filled.Download
+          import androidx.compose.material.icons.filled.Error
+          import androidx.compose.material.icons.filled.Favorite
+          import androidx.compose.material.icons.filled.Key
+          import androidx.compose.material.icons.filled.PlayArrow
+          import androidx.compose.material.icons.filled.Stop
+          import androidx.compose.material.icons.filled.TrendingUp
+          import androidx.compose.material3.Button
+          import androidx.compose.material3.ButtonDefaults
+          import androidx.compose.material3.Card
+          import androidx.compose.material3.CardDefaults
+          import androidx.compose.material3.ExperimentalMaterial3Api
+          import androidx.compose.material3.FilterChip
+          import androidx.compose.material3.Icon
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.OutlinedButton
+          import androidx.compose.material3.Scaffold
+          import androidx.compose.material3.Slider
+          import androidx.compose.material3.Surface
+          import androidx.compose.material3.Text
+          import androidx.compose.material3.TopAppBar
+          import androidx.compose.material3.TopAppBarDefaults
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.clip
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.vector.ImageVector
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.style.TextAlign
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import com.example.stepbooster.AppState
+
+          @OptIn(ExperimentalMaterial3Api::class)
+          @Composable
+          fun MainScreen(
+              state: AppState,
+              onToggleService: () -> Unit,
+              onMultiplierChange: (Float) -> Unit,
+              onRequestPermissions: () -> Unit,
+              onBatteryOptimization: () -> Unit,
+              onOpenHealthConnectStore: () -> Unit
+          ) {
+              Scaffold(
+                  topBar = {
+                      TopAppBar(
+                          title = { Text("StepBooster", fontWeight = FontWeight.Bold) },
+                          colors = TopAppBarDefaults.topAppBarColors(
+                              containerColor = MaterialTheme.colorScheme.primaryContainer
+                          )
+                      )
+                  }
+              ) { padding ->
+                  Column(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .padding(padding)
+                          .verticalScroll(rememberScrollState())
+                          .padding(16.dp),
+                      verticalArrangement = Arrangement.spacedBy(16.dp)
+                  ) {
+                      Card(
+                          modifier = Modifier.fillMaxWidth(),
+                          elevation = CardDefaults.cardElevation(4.dp)
+                      ) {
+                          Column(
+                              modifier = Modifier.padding(20.dp),
+                              horizontalAlignment = Alignment.CenterHorizontally,
+                              verticalArrangement = Arrangement.spacedBy(16.dp)
+                          ) {
+                              Row(
+                                  verticalAlignment = Alignment.CenterVertically,
+                                  horizontalArrangement = Arrangement.spacedBy(8.dp)
+                              ) {
+                                  Box(
+                                      modifier = Modifier
+                                          .size(14.dp)
+                                          .clip(CircleShape)
+                                          .background(
+                                              if (state.isServiceRunning) Color(0xFF4CAF50) else Color(0xFFF44336)
+                                          )
+                                  )
+                                  Text(
+                                      if (state.isServiceRunning) "ACTIV" else "INACTIV",
+                                      fontWeight = FontWeight.Bold,
+                                      fontSize = 14.sp,
+                                      color = if (state.isServiceRunning) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                  )
+                              }
+
+                              Button(
+                                  onClick = onToggleService,
+                                  modifier = Modifier
+                                      .fillMaxWidth()
+                                      .height(56.dp),
+                                  enabled = state.healthConnectAvailable && state.hasPermissions,
+                                  colors = ButtonDefaults.buttonColors(
+                                      containerColor = if (state.isServiceRunning) {
+                                          Color(0xFFC62828)
+                                      } else {
+                                          MaterialTheme.colorScheme.primary
+                                      }
+                                  )
+                              ) {
+                                  Icon(
+                                      if (state.isServiceRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                      contentDescription = null,
+                                      modifier = Modifier.padding(end = 8.dp)
+                                  )
+                                  Text(
+                                      if (state.isServiceRunning) "OPRESTE StepBooster" else "PORNESTE StepBooster",
+                                      fontWeight = FontWeight.Bold,
+                                      fontSize = 16.sp
+                                  )
+                              }
+
+                              Surface(
+                                  color = if (state.healthConnectAvailable) Color(0xFFE8F5E9) else Color(0xFFFFEBEE),
+                                  shape = RoundedCornerShape(20.dp)
+                              ) {
+                                  Row(
+                                      modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                      verticalAlignment = Alignment.CenterVertically,
+                                      horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                  ) {
+                                      Icon(
+                                          if (state.healthConnectAvailable) Icons.Default.CheckCircle else Icons.Default.Error,
+                                          contentDescription = null,
+                                          tint = if (state.healthConnectAvailable) Color(0xFF2E7D32) else Color(0xFFC62828),
+                                          modifier = Modifier.size(16.dp)
+                                      )
+                                      Text(
+                                          if (state.healthConnectAvailable) {
+                                              "Health Connect: Disponibil"
+                                          } else {
+                                              "Health Connect: Indisponibil"
+                                          },
+                                          fontSize = 12.sp,
+                                          color = if (state.healthConnectAvailable) Color(0xFF2E7D32) else Color(0xFFC62828)
+                                      )
+                                  }
+                              }
+                          }
+                      }
+
+                      Card(
+                          modifier = Modifier.fillMaxWidth(),
+                          elevation = CardDefaults.cardElevation(4.dp)
+                      ) {
+                          Column(modifier = Modifier.padding(20.dp)) {
+                              Text(
+                                  "Statistici Azi",
+                                  fontWeight = FontWeight.Bold,
+                                  fontSize = 16.sp,
+                                  modifier = Modifier.padding(bottom = 16.dp)
+                              )
+
+                              Row(
+                                  modifier = Modifier.fillMaxWidth(),
+                                  horizontalArrangement = Arrangement.SpaceEvenly
+                              ) {
+                                  StatBox("Pasi Reali", state.realStepsToday.toString(), Icons.Default.DirectionsWalk, MaterialTheme.colorScheme.primary)
+                                  StatBox("Pasi HC", state.boostedStepsToday.toString(), Icons.Default.Favorite, Color(0xFFE91E63))
+                                  StatBox("Multiplicator", "${state.multiplier}x", Icons.Default.TrendingUp, Color(0xFFFF9800))
+                              }
+                          }
+                      }
+
+                      Card(
+                          modifier = Modifier.fillMaxWidth(),
+                          elevation = CardDefaults.cardElevation(4.dp)
+                      ) {
+                          Column(
+                              modifier = Modifier.padding(20.dp),
+                              verticalArrangement = Arrangement.spacedBy(12.dp)
+                          ) {
+                              Text("Multiplicator Pasi", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+
+                              Text(
+                                  "${state.multiplier}x",
+                                  fontSize = 48.sp,
+                                  fontWeight = FontWeight.Bold,
+                                  color = MaterialTheme.colorScheme.primary,
+                                  modifier = Modifier.fillMaxWidth(),
+                                  textAlign = TextAlign.Center
+                              )
+
+                              Slider(
+                                  value = state.multiplier,
+                                  onValueChange = onMultiplierChange,
+                                  valueRange = 1.5f..5.0f,
+                                  steps = 6,
+                                  modifier = Modifier.fillMaxWidth()
+                              )
+
+                              Row(
+                                  modifier = Modifier.fillMaxWidth(),
+                                  horizontalArrangement = Arrangement.SpaceBetween
+                              ) {
+                                  Text("1.5x", fontSize = 11.sp, color = Color.Gray)
+                                  Text("5.0x", fontSize = 11.sp, color = Color.Gray)
+                              }
+
+                              Row(
+                                  modifier = Modifier.fillMaxWidth(),
+                                  horizontalArrangement = Arrangement.spacedBy(6.dp)
+                              ) {
+                                  listOf(1.5f, 2f, 3f, 4f, 5f).forEach { v ->
+                                      FilterChip(
+                                          selected = state.multiplier == v,
+                                          onClick = { onMultiplierChange(v) },
+                                          label = { Text("${v}x", fontSize = 12.sp) },
+                                          modifier = Modifier.weight(1f)
+                                      )
+                                  }
+                              }
+                          }
+                      }
+
+                      Card(
+                          modifier = Modifier.fillMaxWidth(),
+                          elevation = CardDefaults.cardElevation(4.dp)
+                      ) {
+                          Column(
+                              modifier = Modifier.padding(20.dp),
+                              verticalArrangement = Arrangement.spacedBy(10.dp)
+                          ) {
+                              Text("Configurare", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+
+                              if (!state.hasPermissions) {
+                                  OutlinedButton(
+                                      onClick = onRequestPermissions,
+                                      modifier = Modifier.fillMaxWidth()
+                                  ) {
+                                      Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                      Text("Solicita Permisiuni Health Connect")
+                                  }
+                              }
+
+                              OutlinedButton(
+                                  onClick = onBatteryOptimization,
+                                  modifier = Modifier.fillMaxWidth()
+                              ) {
+                                  Icon(Icons.Default.BatteryFull, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                  Text("Dezactiveaza Optimizare Baterie")
+                              }
+
+                              if (!state.healthConnectAvailable) {
+                                  Button(
+                                      onClick = onOpenHealthConnectStore,
+                                      modifier = Modifier.fillMaxWidth(),
+                                      colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                                  ) {
+                                      Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                                      Text("Instaleaza Health Connect")
+                                  }
+                              }
+                          }
+                      }
+
+                      Spacer(Modifier.height(16.dp))
+                  }
+              }
+          }
+
+          @Composable
+          fun StatBox(label: String, value: String, icon: ImageVector, color: Color) {
+              Column(
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  verticalArrangement = Arrangement.spacedBy(4.dp)
+              ) {
+                  Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(28.dp))
+                  Text(value, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = color)
+                  Text(label, fontSize = 11.sp, color = Color.Gray, textAlign = TextAlign.Center)
+              }
+          }
+          """)
+
+          def make_png(size, r, g, b):
+              def chunk(name, data):
+                  c = zlib.crc32(name + data) & 0xffffffff
+                  return struct.pack(">I", len(data)) + name + data + struct.pack(">I", c)
+
+              sig = b"\\x89PNG\\r\\n\\x1a\\n"
+              ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+
+              raw = b""
+              for y in range(size):
+                  row = b"\\x00"
+                  for x in range(size):
+                      cx, cy = x - size // 2, y - size // 2
+                      if cx * cx + cy * cy <= (size // 2 - 2) ** 2:
+                          row += bytes([r, g, b])
+                      else:
+                          row += b"\\x00\\x00\\x00"
+                  raw += row
+
+              idat = chunk(b"IDAT", zlib.compress(raw))
+              iend = chunk(b"IEND", b"")
+              return sig + ihdr + idat + iend
+
+          for folder, size in [
+              ("mipmap-mdpi", 48),
+              ("mipmap-hdpi", 72),
+              ("mipmap-xhdpi", 96),
+              ("mipmap-xxhdpi", 144),
+              ("mipmap-xxxhdpi", 192),
+          ]:
+              path = f"app/src/main/res/{folder}"
+              os.makedirs(path, exist_ok=True)
+              png = make_png(size, 46, 125, 50)
+              with open(f"{path}/ic_launcher.png", "wb") as f:
+                  f.write(png)
+              with open(f"{path}/ic_launcher_round.png", "wb") as f:
+                  f.write(png)
+
+          print("Toate fisierele au fost generate cu succes.")
+          PYEOF
+
+      - name: Descarcă Gradle Wrapper JAR
+        run: |
+          mkdir -p gradle/wrapper
+          curl -L --retry 3 \
+            "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar" \
+            -o gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Acceptă licențele Android
+        run: yes | sdkmanager --licenses || true
+
+      - name: Instalează platforme Android necesare
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+      - name: Build APK debug
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --info
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: StepBooster-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30

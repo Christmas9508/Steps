@@ -1,5 +1,4 @@
 name: Build StepBooster APK
-
 on:
   push:
     branches: [ main ]
@@ -10,17 +9,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Creaza structura proiect
+        run: |
+          mkdir -p app/src/main/java/com/example/stepbooster/ui/theme
+          mkdir -p app/src/main/res/values
+          mkdir -p gradle/wrapper
+
+          mv AndroidManifest.xml app/src/main/AndroidManifest.xml 2>/dev/null || true
+          mv strings.xml app/src/main/res/values/ 2>/dev/null || true
+          mv themes.xml app/src/main/res/values/ 2>/dev/null || true
+          mv MainActivity.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
+          mv MainViewModel.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
+          mv StepBoosterService.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
+          mv HealthConnectManager.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
+          mv MultiplierDataStore.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
+          mv BootReceiver.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
+          mv WatchdogAlarmReceiver.kt app/src/main/java/com/example/stepbooster/ 2>/dev/null || true
+          mv MainScreen.kt app/src/main/java/com/example/stepbooster/ui/ 2>/dev/null || true
+          mv Theme.kt app/src/main/java/com/example/stepbooster/ui/theme/ 2>/dev/null || true
+          mv gradle-wrapper.properties gradle/wrapper/ 2>/dev/null || true
+          mv libs.versions.toml gradle/ 2>/dev/null || true
+          mv proguard-rules.pro app/ 2>/dev/null || true
+
+      - name: Descarca Gradle Wrapper JAR
+        run: |
+          curl -L --retry 3 \
+            "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar" \
+            -o gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+
       - uses: android-actions/setup-android@v3
+
       - run: yes | sdkmanager --licenses || true
-      - run: |
-          mkdir -p gradle/wrapper
-          curl -L --retry 3 "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar
-          chmod +x gradlew
+
       - run: ./gradlew assembleDebug --no-daemon --stacktrace
+
       - uses: actions/upload-artifact@v4
         with:
           name: StepBooster-debug

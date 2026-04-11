@@ -1,0 +1,512 @@
+name: Build StepBooster APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Creaza structura proiect
+        run: |
+          mkdir -p app/src/main/java/com/example/stepbooster/ui/theme
+          mkdir -p app/src/main/java/com/example/stepbooster/ui
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+          mkdir -p gradle/wrapper
+
+          for f in MainActivity.kt MainViewModel.kt StepBoosterService.kt HealthConnectManager.kt MultiplierDataStore.kt BootReceiver.kt WatchdogAlarmReceiver.kt; do
+            [ -f "$f" ] && mv "$f" app/src/main/java/com/example/stepbooster/
+          done
+          [ -f "MainScreen.kt" ] && mv MainScreen.kt app/src/main/java/com/example/stepbooster/ui/
+          [ -f "Theme.kt" ] && mv Theme.kt app/src/main/java/com/example/stepbooster/ui/theme/
+          [ -f "AndroidManifest.xml" ] && mv AndroidManifest.xml app/src/main/
+          [ -f "strings.xml" ] && mv strings.xml app/src/main/res/values/
+          [ -f "themes.xml" ] && mv themes.xml app/src/main/res/values/
+          [ -f "gradle-wrapper.properties" ] && mv gradle-wrapper.properties gradle/wrapper/
+          [ -f "libs.versions.toml" ] && mv libs.versions.toml gradle/
+          [ -f "proguard-rules.pro" ] && mv proguard-rules.pro app/
+
+          cat > settings.gradle.kts << 'SEOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "StepBooster"
+          include(":app")
+          SEOF
+
+          cat > build.gradle.kts << 'BEOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
+          }
+          BEOF
+
+          cat > gradle.properties << 'GEOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          GEOF
+
+          cat > app/build.gradle.kts << 'ABEOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+
+          android {
+              namespace = "com.example.stepbooster"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.example.stepbooster"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 4
+                  versionName = "1.3"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_11
+                  targetCompatibility = JavaVersion.VERSION_11
+              }
+
+              kotlinOptions {
+                  jvmTarget = "11"
+              }
+
+              buildFeatures {
+                  compose = true
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+              implementation("androidx.activity:activity-compose:1.9.3")
+              implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.ui:ui-tooling-preview")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
+              implementation("androidx.health.connect:connect-client:1.0.0-alpha11")
+              implementation("androidx.datastore:datastore-preferences:1.1.1")
+              implementation("androidx.work:work-runtime-ktx:2.9.1")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+              debugImplementation("androidx.compose.ui:ui-tooling")
+          }
+          ABEOF
+
+      - name: Rescrie fisierele Kotlin corectate
+        run: |
+          cat > app/src/main/java/com/example/stepbooster/HealthConnectManager.kt << 'EOF'
+          package com.example.stepbooster
+
+          import android.content.Context
+          import android.content.pm.PackageManager
+          import androidx.core.content.ContextCompat
+          import androidx.health.connect.client.HealthConnectClient
+          import androidx.health.connect.client.records.StepsRecord
+          import androidx.health.connect.client.request.ReadRecordsRequest
+          import androidx.health.connect.client.time.TimeRangeFilter
+          import java.time.Instant
+          import java.time.LocalDate
+          import java.time.ZoneId
+
+          class HealthConnectManager(private val context: Context) {
+
+              private val client by lazy { HealthConnectClient.getOrCreate(context) }
+
+              fun isAvailable(): Boolean {
+                  return try { HealthConnectClient.getOrCreate(context); true }
+                  catch (e: Exception) { false }
+              }
+
+              fun hasPermissions(): Boolean {
+                  val hcPerms = listOf(
+                      "android.permission.health.READ_STEPS",
+                      "android.permission.health.WRITE_STEPS"
+                  )
+                  return hcPerms.all {
+                      ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+                  }
+              }
+
+              suspend fun writeSteps(steps: Long, startTime: Instant, endTime: Instant) {
+                  if (steps <= 0) return
+                  try {
+                      val safeEnd = if (endTime.isAfter(startTime)) endTime else startTime.plusMillis(1000)
+                      client.insertRecords(listOf(StepsRecord(
+                          count = steps,
+                          startTime = startTime,
+                          endTime = safeEnd,
+                          startZoneOffset = ZoneId.systemDefault().rules.getOffset(startTime),
+                          endZoneOffset   = ZoneId.systemDefault().rules.getOffset(safeEnd)
+                      )))
+                  } catch (e: Exception) { e.printStackTrace() }
+              }
+
+              suspend fun readTodaySteps(): Long {
+                  return try {
+                      val startOfDay = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant()
+                      client.readRecords(ReadRecordsRequest(
+                          recordType = StepsRecord::class,
+                          timeRangeFilter = TimeRangeFilter.between(startOfDay, Instant.now())
+                      )).records.sumOf { it.count }
+                  } catch (e: Exception) { 0L }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/stepbooster/MainActivity.kt << 'EOF'
+          package com.example.stepbooster
+
+          import android.Manifest
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.activity.viewModels
+          import androidx.compose.runtime.collectAsState
+          import androidx.compose.runtime.getValue
+          import com.example.stepbooster.ui.MainScreen
+          import com.example.stepbooster.ui.theme.StepBoosterTheme
+
+          class MainActivity : ComponentActivity() {
+              private val viewModel: MainViewModel by viewModels()
+
+              private val allPermissionsLauncher = registerForActivityResult(
+                  ActivityResultContracts.RequestMultiplePermissions()
+              ) { viewModel.onPermissionsGranted() }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      StepBoosterTheme {
+                          val state by viewModel.state.collectAsState()
+                          MainScreen(
+                              state = state,
+                              onToggleService = { viewModel.toggleService() },
+                              onMultiplierChange = { viewModel.setMultiplier(it) },
+                              onRequestPermissions = { requestAllPermissions() },
+                              onBatteryOptimization = { openBatterySettings() },
+                              onOpenHealthConnectStore = { openPlayStore("com.google.android.apps.healthdata") }
+                          )
+                      }
+                  }
+              }
+
+              private fun requestAllPermissions() {
+                  val perms = mutableListOf(
+                      "android.permission.health.READ_STEPS",
+                      "android.permission.health.WRITE_STEPS"
+                  )
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      perms.add(Manifest.permission.ACTIVITY_RECOGNITION)
+                  }
+                  allPermissionsLauncher.launch(perms.toTypedArray())
+              }
+
+              private fun openBatterySettings() {
+                  try {
+                      startActivity(
+                          Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                              data = Uri.parse("package:$packageName")
+                          }
+                      )
+                  } catch (e: Exception) {
+                      startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                  }
+              }
+
+              private fun openPlayStore(pkg: String) {
+                  try {
+                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$pkg")))
+                  } catch (e: Exception) {
+                      startActivity(
+                          Intent(
+                              Intent.ACTION_VIEW,
+                              Uri.parse("https://play.google.com/store/apps/details?id=$pkg")
+                          )
+                      )
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/stepbooster/StepBoosterService.kt << 'EOF'
+          package com.example.stepbooster
+
+          import android.app.AlarmManager
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.hardware.Sensor
+          import android.hardware.SensorEvent
+          import android.hardware.SensorEventListener
+          import android.hardware.SensorManager
+          import android.os.IBinder
+          import android.os.PowerManager
+          import android.os.SystemClock
+          import androidx.core.app.NotificationCompat
+          import kotlinx.coroutines.*
+          import kotlinx.coroutines.flow.first
+          import java.time.Instant
+
+          class StepBoosterService : Service(), SensorEventListener {
+
+              companion object {
+                  const val CHANNEL_ID = "stepbooster_channel"
+                  const val NOTIFICATION_ID = 1001
+                  const val ACTION_UPDATE_MULTIPLIER = "ACTION_UPDATE_MULTIPLIER"
+                  const val EXTRA_MULTIPLIER = "EXTRA_MULTIPLIER"
+                  const val WATCHDOG_INTERVAL_MS = 5 * 60 * 1000L
+
+                  var realStepsToday = 0L
+                  var boostedStepsToday = 0L
+                  var currentMultiplier = 2.0f
+                  var isRunning = false
+
+                  fun start(context: Context) {
+                      context.startForegroundService(Intent(context, StepBoosterService::class.java))
+                  }
+                  fun stop(context: Context) {
+                      context.stopService(Intent(context, StepBoosterService::class.java))
+                  }
+              }
+
+              private lateinit var sensorManager: SensorManager
+              private lateinit var wakeLock: PowerManager.WakeLock
+              private lateinit var healthConnectManager: HealthConnectManager
+              private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+              private var batchRealSteps = 0L
+              private var batchStartTime: Instant? = null
+              private var batchEndTime: Instant? = null
+              private var batchJob: Job? = null
+              private val BATCH_INTERVAL_MS = 15_000L
+
+              override fun onCreate() {
+                  super.onCreate()
+                  isRunning = true
+                  healthConnectManager = HealthConnectManager(this)
+                  sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+                  val pm = getSystemService(POWER_SERVICE) as PowerManager
+                  wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "StepBooster::WakeLock")
+                  wakeLock.acquire()
+                  serviceScope.launch {
+                      currentMultiplier = MultiplierDataStore.getMultiplier(applicationContext).first()
+                  }
+                  createNotificationChannel()
+                  startForeground(NOTIFICATION_ID, buildNotification())
+                  registerStepSensor()
+                  scheduleWatchdog()
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (intent?.action == ACTION_UPDATE_MULTIPLIER) {
+                      currentMultiplier = intent.getFloatExtra(EXTRA_MULTIPLIER, 2.0f)
+                      updateNotification()
+                  }
+                  return START_STICKY
+              }
+
+              override fun onTaskRemoved(rootIntent: Intent?) {
+                  super.onTaskRemoved(rootIntent)
+                  val pi = PendingIntent.getService(
+                      this,
+                      1,
+                      Intent(applicationContext, StepBoosterService::class.java),
+                      PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                  )
+                  (getSystemService(ALARM_SERVICE) as AlarmManager).set(
+                      AlarmManager.ELAPSED_REALTIME,
+                      SystemClock.elapsedRealtime() + 2000,
+                      pi
+                  )
+              }
+
+              override fun onDestroy() {
+                  super.onDestroy()
+                  isRunning = false
+                  sensorManager.unregisterListener(this)
+                  serviceScope.cancel()
+                  if (wakeLock.isHeld) wakeLock.release()
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              private fun registerStepSensor() {
+                  val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+                  if (sensor != null) {
+                      sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL)
+                  }
+              }
+
+              override fun onSensorChanged(event: SensorEvent) {
+                  if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
+                      val now = Instant.now()
+                      synchronized(this) {
+                          batchRealSteps++
+                          realStepsToday++
+                          if (batchStartTime == null) batchStartTime = now
+                          batchEndTime = now
+                      }
+                      if (batchJob?.isActive != true) {
+                          batchJob = serviceScope.launch {
+                              delay(BATCH_INTERVAL_MS)
+                              flushBatch()
+                          }
+                      }
+                      updateNotification()
+                  }
+              }
+
+              override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+              private suspend fun flushBatch() {
+                  val steps: Long
+                  val start: Instant
+                  val end: Instant
+                  synchronized(this) {
+                      if (batchRealSteps == 0L) return
+                      steps = batchRealSteps
+                      start = batchStartTime ?: Instant.now()
+                      end = batchEndTime ?: Instant.now()
+                      batchRealSteps = 0L
+                      batchStartTime = null
+                      batchEndTime = null
+                  }
+                  val boosted = Math.round(steps.toDouble() * currentMultiplier.toDouble())
+                  boostedStepsToday += boosted
+                  healthConnectManager.writeSteps(boosted, start, end)
+                  updateNotification()
+              }
+
+              private fun createNotificationChannel() {
+                  val channel = NotificationChannel(
+                      CHANNEL_ID,
+                      getString(R.string.notification_channel_name),
+                      NotificationManager.IMPORTANCE_LOW
+                  ).apply { setShowBadge(false) }
+
+                  (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                      .createNotificationChannel(channel)
+              }
+
+              private fun buildNotification(): Notification {
+                  val pi = PendingIntent.getActivity(
+                      this,
+                      0,
+                      Intent(this, MainActivity::class.java),
+                      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                  )
+                  return NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setContentTitle("StepBooster ${currentMultiplier}x Activ")
+                      .setContentText("Pași reali: $realStepsToday | HC: $boostedStepsToday")
+                      .setSmallIcon(android.R.drawable.ic_media_play)
+                      .setContentIntent(pi)
+                      .setOngoing(true)
+                      .setSilent(true)
+                      .build()
+              }
+
+              private fun updateNotification() {
+                  (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                      .notify(NOTIFICATION_ID, buildNotification())
+              }
+
+              private fun scheduleWatchdog() {
+                  val pi = PendingIntent.getBroadcast(
+                      this,
+                      0,
+                      Intent(this, WatchdogAlarmReceiver::class.java),
+                      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                  )
+                  (getSystemService(ALARM_SERVICE) as AlarmManager).setExactAndAllowWhileIdle(
+                      AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                      SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS,
+                      pi
+                  )
+              }
+          }
+          EOF
+
+      - name: Descarca Gradle Wrapper JAR
+        run: |
+          curl -L --retry 3 "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar" -o gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: android-actions/setup-android@v3
+
+      - run: yes | sdkmanager --licenses || true
+
+      - run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+      - name: Build APK debug
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --info
+
+      - name: Verifica output build
+        run: |
+          echo "=== APK files ==="
+          find app/build/outputs -type f | sort || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StepBooster-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+          

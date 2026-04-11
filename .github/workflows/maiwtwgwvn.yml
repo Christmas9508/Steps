@@ -1,0 +1,828 @@
+name: Build StepBooster APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scrie tot codul sursa
+        shell: bash
+        run: |
+          python3 << 'PYEOF'
+          import os, textwrap
+
+          def w(path, content):
+              d = os.path.dirname(path)
+              if d:
+                  os.makedirs(d, exist_ok=True)
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(textwrap.dedent(content).strip() + "\n")
+
+          # ── Gradle ──────────────────────────────────────────────────────────
+
+          w("settings.gradle.kts", """
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "StepBooster"
+          include(":app")
+          """)
+
+          w("build.gradle.kts", """
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
+          }
+          """)
+
+          w("gradle.properties", """
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          """)
+
+          w("gradle/wrapper/gradle-wrapper.properties", r"""
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip
+          networkTimeout=10000
+          validateDistributionUrl=true
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          """)
+
+          w("gradlew", """
+          #!/bin/sh
+          APP_HOME=$(cd "${APP_HOME:-./}" && pwd -P) || exit 1
+          JAVACMD=${JAVA_HOME:+$JAVA_HOME/bin/}java
+          exec "$JAVACMD" -classpath "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"
+          """)
+
+          w("app/build.gradle.kts", """
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+              id("org.jetbrains.kotlin.plugin.compose")
+          }
+
+          android {
+              namespace = "com.example.stepbooster"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.example.stepbooster"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 21
+                  versionName = "2.2"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_11
+                  targetCompatibility = JavaVersion.VERSION_11
+              }
+
+              kotlinOptions {
+                  jvmTarget = "11"
+              }
+
+              buildFeatures {
+                  compose = true
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+              implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+              implementation("androidx.activity:activity-compose:1.9.3")
+
+              implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+              implementation("androidx.compose.ui:ui")
+              implementation("androidx.compose.ui:ui-graphics")
+              implementation("androidx.compose.ui:ui-tooling-preview")
+              implementation("androidx.compose.material3:material3")
+              implementation("androidx.compose.material:material-icons-extended")
+
+              implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
+              implementation("androidx.datastore:datastore-preferences:1.1.1")
+              implementation("androidx.work:work-runtime-ktx:2.9.1")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+          }
+          """)
+
+          w("app/proguard-rules.pro", """
+          -keep class com.example.stepbooster.** { *; }
+          -keep class androidx.health.connect.** { *; }
+          -dontwarn androidx.health.connect.**
+          """)
+
+          # ── Manifest ────────────────────────────────────────────────────────
+
+          w("app/src/main/AndroidManifest.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+              <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+              <uses-permission android:name="android.permission.health.READ_STEPS" />
+              <uses-permission android:name="android.permission.health.WRITE_STEPS" />
+              <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+              <uses-permission android:name="android.permission.health.WRITE_DISTANCE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.StepBooster">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter>
+                          <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".StepBoosterService"
+                      android:enabled="true"
+                      android:exported="false"
+                      android:foregroundServiceType="health|location" />
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:enabled="true"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                      </intent-filter>
+                  </receiver>
+
+                  <receiver
+                      android:name=".WatchdogAlarmReceiver"
+                      android:enabled="true"
+                      android:exported="false" />
+              </application>
+
+              <queries>
+                  <package android:name="com.google.android.apps.healthdata" />
+                  <package android:name="com.google.android.apps.fitness" />
+              </queries>
+          </manifest>
+          """)
+
+          # ── Resources ───────────────────────────────────────────────────────
+
+          w("app/src/main/res/values/strings.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">StepBooster</string>
+              <string name="notification_channel_name">StepBooster Service</string>
+          </resources>
+          """)
+
+          w("app/src/main/res/values/themes.xml", """<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.StepBooster" parent="android:Theme.Material.Light.NoActionBar" />
+          </resources>
+          """)
+
+          # ── AppDataStore ────────────────────────────────────────────────────
+
+          w("app/src/main/java/com/example/stepbooster/AppDataStore.kt", """
+          package com.example.stepbooster
+
+          import android.content.Context
+          import androidx.datastore.core.DataStore
+          import androidx.datastore.preferences.core.Preferences
+          import androidx.datastore.preferences.core.booleanPreferencesKey
+          import androidx.datastore.preferences.core.edit
+          import androidx.datastore.preferences.core.floatPreferencesKey
+          import androidx.datastore.preferences.core.intPreferencesKey
+          import androidx.datastore.preferences.core.stringPreferencesKey
+          import androidx.datastore.preferences.preferencesDataStore
+          import kotlinx.coroutines.flow.Flow
+          import kotlinx.coroutines.flow.map
+
+          val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "stepbooster_prefs")
+
+          object AppDataStore {
+              private val MULTIPLIER_KEY = floatPreferencesKey("multiplier")
+              private val SERVICE_ENABLED_KEY = booleanPreferencesKey("service_enabled")
+              private val SIM_MODE_KEY = stringPreferencesKey("sim_mode")
+              private val STEPS_PER_MIN_KEY = intPreferencesKey("steps_per_min")
+              private val GPS_SIM_KEY = booleanPreferencesKey("gps_sim")
+              private val CENTER_LAT_KEY = floatPreferencesKey("center_lat")
+              private val CENTER_LNG_KEY = floatPreferencesKey("center_lng")
+
+              fun getMultiplier(ctx: Context): Flow<Float> = ctx.dataStore.data.map { it[MULTIPLIER_KEY] ?: 2.0f }
+              fun getServiceEnabled(ctx: Context): Flow<Boolean> = ctx.dataStore.data.map { it[SERVICE_ENABLED_KEY] ?: false }
+              fun getSimMode(ctx: Context): Flow<String> = ctx.dataStore.data.map { it[SIM_MODE_KEY] ?: "BOTH" }
+              fun getStepsPerMin(ctx: Context): Flow<Int> = ctx.dataStore.data.map { it[STEPS_PER_MIN_KEY] ?: 90 }
+              fun getGpsSim(ctx: Context): Flow<Boolean> = ctx.dataStore.data.map { it[GPS_SIM_KEY] ?: false }
+              fun getCenterLat(ctx: Context): Flow<Float> = ctx.dataStore.data.map { it[CENTER_LAT_KEY] ?: 44.4268f }
+              fun getCenterLng(ctx: Context): Flow<Float> = ctx.dataStore.data.map { it[CENTER_LNG_KEY] ?: 26.1025f }
+
+              suspend fun setMultiplier(ctx: Context, v: Float) = ctx.dataStore.edit { it[MULTIPLIER_KEY] = v }
+              suspend fun setServiceEnabled(ctx: Context, v: Boolean) = ctx.dataStore.edit { it[SERVICE_ENABLED_KEY] = v }
+              suspend fun setSimMode(ctx: Context, v: String) = ctx.dataStore.edit { it[SIM_MODE_KEY] = v }
+              suspend fun setStepsPerMin(ctx: Context, v: Int) = ctx.dataStore.edit { it[STEPS_PER_MIN_KEY] = v }
+              suspend fun setGpsSim(ctx: Context, v: Boolean) = ctx.dataStore.edit { it[GPS_SIM_KEY] = v }
+              suspend fun setCenterLat(ctx: Context, v: Float) = ctx.dataStore.edit { it[CENTER_LAT_KEY] = v }
+              suspend fun setCenterLng(ctx: Context, v: Float) = ctx.dataStore.edit { it[CENTER_LNG_KEY] = v }
+          }
+          """)
+
+          # ── HealthConnectManager ────────────────────────────────────────────
+
+          w("app/src/main/java/com/example/stepbooster/HealthConnectManager.kt", """
+          package com.example.stepbooster
+
+          import android.content.Context
+          import androidx.health.connect.client.HealthConnectClient
+          import androidx.health.connect.client.permission.HealthPermission
+          import androidx.health.connect.client.records.DistanceRecord
+          import androidx.health.connect.client.records.StepsRecord
+          import androidx.health.connect.client.request.ReadRecordsRequest
+          import androidx.health.connect.client.time.TimeRangeFilter
+          import androidx.health.connect.client.units.Length
+          import java.time.Instant
+          import java.time.LocalDate
+          import java.time.ZoneId
+
+          class HealthConnectManager(private val context: Context) {
+
+              private val client by lazy { HealthConnectClient.getOrCreate(context) }
+
+              val permissions = setOf(
+                  HealthPermission.getReadPermission(StepsRecord::class),
+                  HealthPermission.getWritePermission(StepsRecord::class),
+                  HealthPermission.getReadPermission(DistanceRecord::class),
+                  HealthPermission.getWritePermission(DistanceRecord::class)
+              )
+
+              suspend fun writeSteps(steps: Long, startTime: Instant, endTime: Instant) {
+                  if (steps <= 0) return
+                  try {
+                      val safeEnd = if (endTime.isAfter(startTime)) endTime else startTime.plusMillis(1000)
+                      client.insertRecords(
+                          listOf(
+                              StepsRecord(
+                                  count = steps,
+                                  startTime = startTime,
+                                  endTime = safeEnd,
+                                  startZoneOffset = ZoneId.systemDefault().rules.getOffset(startTime),
+                                  endZoneOffset = ZoneId.systemDefault().rules.getOffset(safeEnd)
+                              )
+                          )
+                      )
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+
+              suspend fun writeDistance(meters: Double, startTime: Instant, endTime: Instant) {
+                  if (meters <= 0.0) return
+                  try {
+                      val safeEnd = if (endTime.isAfter(startTime)) endTime else startTime.plusMillis(1000)
+                      client.insertRecords(
+                          listOf(
+                              DistanceRecord(
+                                  distance = Length.meters(meters),
+                                  startTime = startTime,
+                                  endTime = safeEnd,
+                                  startZoneOffset = ZoneId.systemDefault().rules.getOffset(startTime),
+                                  endZoneOffset = ZoneId.systemDefault().rules.getOffset(safeEnd)
+                              )
+                          )
+                      )
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+          }
+          """)
+
+          # ── LocationSimulator ───────────────────────────────────────────────
+
+          w("app/src/main/java/com/example/stepbooster/LocationSimulator.kt", """
+          package com.example.stepbooster
+
+          import android.content.Context
+          import android.location.Location
+          import android.location.LocationManager
+          import android.os.SystemClock
+          import kotlin.math.PI
+          import kotlin.math.cos
+          import kotlin.math.sin
+
+          class LocationSimulator(private val context: Context) {
+
+              companion object {
+                  const val PROVIDER = LocationManager.GPS_PROVIDER
+                  const val WALK_SPEED_MPS = 1.4f
+                  const val ROUTE_RADIUS_M = 300.0
+                  const val UPDATE_INTERVAL_MS = 2000L
+              }
+
+              private val lm by lazy { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
+              private var angle = 0.0
+              private var centerLat = 44.4268
+              private var centerLng = 26.1025
+
+              fun setup(lat: Double, lng: Double) {
+                  centerLat = lat
+                  centerLng = lng
+                  try {
+                      try {
+                          lm.removeTestProvider(PROVIDER)
+                      } catch (_: Exception) {}
+                      lm.addTestProvider(PROVIDER, false, false, false, false, true, true, true, 0, 5)
+                      lm.setTestProviderEnabled(PROVIDER, true)
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+
+              fun nextLocation(): Location {
+                  val deltaAngle = (WALK_SPEED_MPS * UPDATE_INTERVAL_MS / 1000.0) / ROUTE_RADIUS_M
+                  angle = (angle + deltaAngle) % (2 * PI)
+
+                  val dLat = ROUTE_RADIUS_M / 111_000.0
+                  val dLng = ROUTE_RADIUS_M / (111_000.0 * cos(Math.toRadians(centerLat)))
+
+                  val lat = centerLat + dLat * sin(angle)
+                  val lng = centerLng + dLng * cos(angle)
+
+                  return Location(PROVIDER).apply {
+                      latitude = lat
+                      longitude = lng
+                      altitude = 80.0
+                      accuracy = 3.0f
+                      speed = WALK_SPEED_MPS
+                      bearing = Math.toDegrees(angle + PI / 2).toFloat()
+                      time = System.currentTimeMillis()
+                      elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+                  }
+              }
+
+              fun pushLocation(loc: Location) {
+                  try {
+                      lm.setTestProviderLocation(PROVIDER, loc)
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+
+              fun tearDown() {
+                  try {
+                      lm.removeTestProvider(PROVIDER)
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+          }
+          """)
+
+          # ── Services and Receivers ──────────────────────────────────────────
+
+          w("app/src/main/java/com/example/stepbooster/StepBoosterService.kt", """
+          package com.example.stepbooster
+
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.Context
+          import android.content.Intent
+          import android.hardware.Sensor
+          import android.hardware.SensorEvent
+          import android.hardware.SensorEventListener
+          import android.hardware.SensorManager
+          import android.os.IBinder
+          import androidx.core.app.NotificationCompat
+          import kotlinx.coroutines.*
+          import kotlinx.coroutines.flow.first
+          import java.time.Instant
+
+          class StepBoosterService : Service(), SensorEventListener {
+
+              private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+              private lateinit var hcManager: HealthConnectManager
+              private lateinit var locSim: LocationSimulator
+              private lateinit var sensorManager: SensorManager
+
+              private var isRunning = false
+              private var simJob: Job? = null
+              private var gpsJob: Job? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  hcManager = HealthConnectManager(this)
+                  locSim = LocationSimulator(this)
+                  sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+                  createNotificationChannel()
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  val notification = buildNotification()
+                  startForeground(1, notification)
+                  if (!isRunning) {
+                      isRunning = true
+                      startTasks()
+                  }
+                  return START_STICKY
+              }
+
+              private fun startTasks() = scope.launch {
+                  val mode = AppDataStore.getSimMode(applicationContext).first()
+                  val gpsSim = AppDataStore.getGpsSim(applicationContext).first()
+
+                  if (mode == "SENSOR" || mode == "BOTH") {
+                      val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+                      if (stepSensor != null) {
+                          sensorManager.registerListener(this@StepBoosterService, stepSensor, SensorManager.SENSOR_DELAY_NORMAL)
+                      }
+                  }
+
+                  if (mode == "SIMULATE" || mode == "BOTH") {
+                      startSimLoop()
+                  }
+
+                  if (gpsSim) {
+                      val lat = AppDataStore.getCenterLat(applicationContext).first().toDouble()
+                      val lng = AppDataStore.getCenterLng(applicationContext).first().toDouble()
+                      locSim.setup(lat, lng)
+                      startGpsLoop()
+                  }
+              }
+
+              private fun startSimLoop() {
+                  simJob = scope.launch {
+                      while (isActive) {
+                          val spm = AppDataStore.getStepsPerMin(applicationContext).first()
+                          val mult = AppDataStore.getMultiplier(applicationContext).first()
+                          val delayMs = (60000L / spm).coerceAtLeast(100L)
+
+                          val stepsToAdd = (1 * mult).toLong()
+                          val now = Instant.now()
+                          hcManager.writeSteps(stepsToAdd, now.minusMillis(delayMs), now)
+
+                          delay(delayMs)
+                      }
+                  }
+              }
+
+              private fun startGpsLoop() {
+                  gpsJob = scope.launch {
+                      while (isActive) {
+                          val loc = locSim.nextLocation()
+                          locSim.pushLocation(loc)
+                          val mult = AppDataStore.getMultiplier(applicationContext).first()
+                          val meters = LocationSimulator.WALK_SPEED_MPS * (LocationSimulator.UPDATE_INTERVAL_MS / 1000.0) * mult
+                          val now = Instant.now()
+                          hcManager.writeDistance(meters, now.minusMillis(LocationSimulator.UPDATE_INTERVAL_MS), now)
+                          delay(LocationSimulator.UPDATE_INTERVAL_MS)
+                      }
+                  }
+              }
+
+              override fun onSensorChanged(event: SensorEvent?) {
+                  if (event?.sensor?.type == Sensor.TYPE_STEP_DETECTOR) {
+                      scope.launch {
+                          val mult = AppDataStore.getMultiplier(applicationContext).first()
+                          val stepsToAdd = (1 * mult).toLong()
+                          val now = Instant.now()
+                          hcManager.writeSteps(stepsToAdd, now.minusMillis(1000), now)
+                      }
+                  }
+              }
+
+              override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+              private fun createNotificationChannel() {
+                  val channel = NotificationChannel("sb_channel", getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW)
+                  getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+              }
+
+              private fun buildNotification(): Notification {
+                  val pendingIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+                  return NotificationCompat.Builder(this, "sb_channel")
+                      .setContentTitle(getString(R.string.app_name))
+                      .setContentText("StepBooster rulează în fundal")
+                      .setSmallIcon(android.R.drawable.ic_menu_directions)
+                      .setContentIntent(pendingIntent)
+                      .setOngoing(true)
+                      .build()
+              }
+
+              override fun onDestroy() {
+                  super.onDestroy()
+                  isRunning = false
+                  sensorManager.unregisterListener(this)
+                  simJob?.cancel()
+                  gpsJob?.cancel()
+                  locSim.tearDown()
+                  scope.cancel()
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/BootReceiver.kt", """
+          package com.example.stepbooster
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.flow.first
+          import kotlinx.coroutines.launch
+
+          class BootReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent) {
+                  if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+                      CoroutineScope(Dispatchers.IO).launch {
+                          if (AppDataStore.getServiceEnabled(context).first()) {
+                              context.startForegroundService(Intent(context, StepBoosterService::class.java))
+                          }
+                      }
+                  }
+              }
+          }
+          """)
+
+          w("app/src/main/java/com/example/stepbooster/WatchdogAlarmReceiver.kt", """
+          package com.example.stepbooster
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.flow.first
+          import kotlinx.coroutines.launch
+
+          class WatchdogAlarmReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent) {
+                  CoroutineScope(Dispatchers.IO).launch {
+                      if (AppDataStore.getServiceEnabled(context).first()) {
+                          context.startForegroundService(Intent(context, StepBoosterService::class.java))
+                      }
+                  }
+              }
+          }
+          """)
+
+          # ── MainActivity (UI) ───────────────────────────────────────────────
+
+          w("app/src/main/java/com/example/stepbooster/MainActivity.kt", """
+          package com.example.stepbooster
+
+          import android.content.Intent
+          import android.os.Bundle
+          import android.provider.Settings
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.unit.dp
+          import androidx.lifecycle.lifecycleScope
+          import kotlinx.coroutines.launch
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      MaterialTheme {
+                          Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                              StepBoosterApp()
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun StepBoosterApp() {
+              val context = LocalContext.current
+              val scope = rememberCoroutineScope()
+              
+              var isEnabled by remember { mutableStateOf(false) }
+              var multiplier by remember { mutableFloatStateOf(2.0f) }
+              var runMode by remember { mutableStateOf("BOTH") }
+              var gpsSim by remember { mutableStateOf(false) }
+              var stepsPerMin by remember { mutableIntStateOf(90) }
+              
+              LaunchedEffect(Unit) { AppDataStore.getServiceEnabled(context).collect { isEnabled = it } }
+              LaunchedEffect(Unit) { AppDataStore.getMultiplier(context).collect { multiplier = it } }
+              LaunchedEffect(Unit) { AppDataStore.getSimMode(context).collect { runMode = it } }
+              LaunchedEffect(Unit) { AppDataStore.getGpsSim(context).collect { gpsSim = it } }
+              LaunchedEffect(Unit) { AppDataStore.getStepsPerMin(context).collect { stepsPerMin = it } }
+
+              Column(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .padding(16.dp)
+                      .verticalScroll(rememberScrollState()),
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  verticalArrangement = Arrangement.spacedBy(16.dp)
+              ) {
+                  Text("StepBooster v2", style = MaterialTheme.typography.headlineMedium)
+
+                  Card(modifier = Modifier.fillMaxWidth()) {
+                      Column(
+                          modifier = Modifier.padding(16.dp),
+                          horizontalAlignment = Alignment.CenterHorizontally
+                      ) {
+                          Text(if (isEnabled) "🟢 ACTIV" else "🔴 INACTIV", style = MaterialTheme.typography.titleLarge)
+                          Spacer(modifier = Modifier.height(8.dp))
+                          Button(onClick = {
+                              scope.launch {
+                                  val newState = !isEnabled
+                                  AppDataStore.setServiceEnabled(context, newState)
+                                  if (newState) {
+                                      context.startForegroundService(Intent(context, StepBoosterService::class.java))
+                                  } else {
+                                      context.stopService(Intent(context, StepBoosterService::class.java))
+                                  }
+                              }
+                          }) {
+                              Text(if (isEnabled) "OPRESTE StepBooster" else "PORNESTE StepBooster")
+                          }
+                      }
+                  }
+
+                  Card(modifier = Modifier.fillMaxWidth()) {
+                      Column(modifier = Modifier.padding(16.dp)) {
+                          Text("Mod de rulare", style = MaterialTheme.typography.titleMedium)
+                          Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                              listOf("SENSOR", "SIMULATE", "BOTH").forEach { mode ->
+                                  FilterChip(
+                                      selected = runMode == mode,
+                                      onClick = { 
+                                          runMode = mode
+                                          scope.launch { AppDataStore.setSimMode(context, mode) }
+                                      },
+                                      label = { Text(mode) }
+                                  )
+                              }
+                          }
+                      }
+                  }
+
+                  Card(modifier = Modifier.fillMaxWidth()) {
+                      Column(modifier = Modifier.padding(16.dp)) {
+                          Text("Ritm Simulare: ${stepsPerMin} pași/min", style = MaterialTheme.typography.titleMedium)
+                          Slider(
+                              value = stepsPerMin.toFloat(),
+                              onValueChange = { 
+                                  stepsPerMin = it.toInt()
+                                  scope.launch { AppDataStore.setStepsPerMin(context, it.toInt()) }
+                              },
+                              valueRange = 60f..140f
+                          )
+                          Spacer(modifier = Modifier.height(8.dp))
+                          
+                          Text("Multiplicator pași (Sensor & Simulare): ${"%.1f".format(multiplier)}x", style = MaterialTheme.typography.titleMedium)
+                          Slider(
+                              value = multiplier,
+                              onValueChange = { 
+                                  multiplier = it
+                                  scope.launch { AppDataStore.setMultiplier(context, it) }
+                              },
+                              valueRange = 1f..10f
+                          )
+                          
+                          Spacer(modifier = Modifier.height(12.dp))
+                          val totalPerMin = (stepsPerMin * multiplier).toInt()
+                          val totalPerHour = totalPerMin * 60
+                          Text(
+                              text = "Calcul live: $stepsPerMin pași/min × ${"%.1f".format(multiplier)}x = $totalPerMin pași/min = $totalPerHour pași/oră",
+                              style = MaterialTheme.typography.bodyMedium,
+                              color = MaterialTheme.colorScheme.primary
+                          )
+                      }
+                  }
+
+                  Card(modifier = Modifier.fillMaxWidth()) {
+                      Column(modifier = Modifier.padding(16.dp)) {
+                          Row(verticalAlignment = Alignment.CenterVertically) {
+                              Text("GPS Simulat (rută circulară 300m)", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                              Switch(
+                                  checked = gpsSim,
+                                  onCheckedChange = { 
+                                      gpsSim = it
+                                      scope.launch { AppDataStore.setGpsSim(context, it) }
+                                  }
+                              )
+                          }
+                          Spacer(modifier = Modifier.height(8.dp))
+                          Button(
+                              onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) },
+                              modifier = Modifier.fillMaxWidth()
+                          ) {
+                              Text("Aplicație locație simulată (Setări Dev)")
+                          }
+                      }
+                  }
+
+                  Card(modifier = Modifier.fillMaxWidth()) {
+                      Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                          Text("Configurare Sistem", style = MaterialTheme.typography.titleMedium)
+                          OutlinedButton(
+                              onClick = {
+                                  val intent = Intent("androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE")
+                                  try { context.startActivity(intent) } catch (e: Exception) {}
+                              },
+                              modifier = Modifier.fillMaxWidth()
+                          ) {
+                              Text("Permisiuni Health Connect")
+                          }
+                          OutlinedButton(
+                              onClick = { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
+                              modifier = Modifier.fillMaxWidth()
+                          ) {
+                              Text("Fără optimizare baterie (Background)")
+                          }
+                      }
+                  }
+              }
+          }
+          """)
+
+          PYEOF
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StepBooster-APK
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
